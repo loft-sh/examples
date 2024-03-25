@@ -4,6 +4,8 @@ These are the resources that are associated with the YouTube video on vCluster S
 
 https://youtu.be/6dIplR8_z38
 
+Note - updates need to be made to many of the files to match your domain.
+
 # Install on the base cluster
 
 Before creating the vCluster we need to get nginx and Cert-Manager running on the base cluster.
@@ -24,3 +26,36 @@ The result is something like `UUID-us-west-1.elb.amazonaws.com` which we can the
 
 demo IN CNAME UUID-us-west-1.elb.amazonaws.com
 
+## Cert-Manager
+
+Next up we need to install Cert-Manager on the base cluster. This will allow us to request certificates for the subdomains we create for our applications running within the virtual cluster.
+
+https://cert-manager.io/docs/installation/kubectl/
+
+Note - the version can change in the command below depending on the current version that is available, so check with the documentation to see the latest version.
+
+`kubectl apply -f https://github.com/cert-manager/releases/download/v1.13.3/cert-manager.yaml`
+
+Now that we have Cert-Manager configured we can create a cluster-issuer. The file used for the cluster-issuer needs an update before you apply it, add your email address so you can be updated when your certificates are expiring.
+
+`kubectl create -f cluster-issuer.yaml`
+
+# vCluster
+
+## Namespace
+
+Now we can move on to creating our vCluster. Start out by creating the namespace, we'll need this to install the vCluster.
+
+`kubectl create namespace demo-vcluster`
+
+## Ingress
+
+Then we can create the ingress resource needed to expose our vCluster API endpoint. The ingress resource we are using is for nginx, if you are using a different ingress controller then some of the configuration options will need to be updated, such as annotations and ingressClassName. We are installing this into the same namespace `demo-vcluster` which is configured within the yaml.
+
+`kubectl create -f demo-vcluster-ingress.yaml`
+
+## Install the vCluster
+
+Now we can install the vCluster using our values file. If you look at the values file we have configured a couple of things. We set the domain and then also set ingress to sync so that we can create ingerss resources within the vCluster and have them sync to the base cluster.
+
+`vcluster create demo-vcluster --namespace demo-vcluster --connect=false -f values.yaml`
