@@ -59,3 +59,19 @@ Then we can create the ingress resource needed to expose our vCluster API endpoi
 Now we can install the vCluster using our values file. If you look at the values file we have configured a couple of things. We set the domain and then also set ingress to sync so that we can create ingerss resources within the vCluster and have them sync to the base cluster.
 
 `vcluster create demo-vcluster --namespace demo-vcluster --connect=false -f values.yaml`
+
+## Access the KubeConfig
+
+Next we can pull the KubeConfig from the vCluster using the vCluster CLI
+
+`vcluster connect demo-vcluster --update-curent=false --server=https://demo.vcluster-demo.com`
+
+## Create the application
+
+Then we can apply the app.yaml file to create the application in our vCluster. The file contains multiple resources including ingress, deployment, and a service.
+
+`kubectl --kubeconfig ./kubeconfig.yaml create -f app.yaml`
+
+# Syncer
+
+There are some future updates coming to the Syncer, so we will stop the guide there. You can reference the plugin.yaml to see what the configuration currently looks like, but keep an eye on our docs for updates. 
