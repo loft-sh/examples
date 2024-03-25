@@ -1,0 +1,56 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: hello-world
+  labels:
+    app: hello-world
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: hello-world
+  template:
+    metadata:
+      labels:
+        app: hello-world
+    spec:
+      containers:
+      - name: hello-world
+        image: gcr.io/google-samples/node-hello:1.0
+        ports:
+        - containerPort: 8080
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: hello-world
+  annotations:
+    cert-manager.io/cluster-issuer: "demo-vcluster-clusterissuer"
+spec:
+  ingressClassName: nginx
+  tls:
+  - hosts:
+    - app.vcluster-demo.com
+    secretName: app-vcluster-demo-tls
+  rules:
+  - host: app.vcluster-demo.com
+    http:
+      paths:
+      - pathType: Prefix
+        path: "/"
+        backend:
+          service:
+            name: hello-world
+            port:
+              number: 80
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: hello-world
+spec:
+  ports:
+  - port: 80
+    targetPort: 8080
+  selector:
+    app: hello-world

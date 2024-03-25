@@ -1,0 +1,7 @@
+syncer:
+  extraArgs:
+  - --tls-san=demo.vcluster-demo.com
+  - --out-kube-config-server=https://demo.vcluster-demo.com
+sync:
+  ingresses:
+    enabled: true
