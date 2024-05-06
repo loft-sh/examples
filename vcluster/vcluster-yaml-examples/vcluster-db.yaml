@@ -1,0 +1,9 @@
+controlPlane:
+  distro:
+    k3s:
+      enabled: true
+  backingStore:
+    database:
+      external:
+        enabled: true
+        dataSource: "mysql://root:password@tcp(192.168.86.9:30360)/vcluster"
