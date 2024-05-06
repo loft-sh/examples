@@ -2,14 +2,14 @@
 
 Examples from the vCluster.yaml video.
 
-## Example 1
+## Example 1 (vcluster.yaml)
 
 The first example enables ingress for the vCluster API and also syncs ingressclasses from the host cluster to the vCluster. It also syncs ingress from the virtual cluster to the host cluster.
 
 Change the hostname from `demo.vcluster.local` to hostname you are going to use for the virtual cluster.
 
 
-## Example 2
+## Example 2 (vcluster-db.yaml)
 
 The second example changes the backing datastore for the virtual cluster. In the example, we are using MySQL.
 
