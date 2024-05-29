@@ -1,0 +1,18 @@
+controlPlane:
+ ingress:
+   enabled: true
+   host: demo.vcluster.local
+   spec:
+     ingressClassName: nginx
+ proxy:
+   extraSANs:
+   - demo.vcluster.local
+sync:
+  fromHost:
+    ingressClasses:
+      enabled: true
+    nodes:
+      enabled: true
+  toHost:
+    ingresses:
+      enabled: true
