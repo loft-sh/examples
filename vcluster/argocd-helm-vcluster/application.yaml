@@ -1,0 +1,39 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: demo-vcluster
+  namespace: argocd
+spec:
+  destination:
+    name: ''
+    namespace: demo-vcluster
+    server: 'https://kubernetes.default.svc'
+  source:
+    path: ''
+    repoURL: 'https://charts.loft.sh'
+    targetRevision: 0.20.0-beta.6
+    chart: vcluster
+    helm:
+      releaseName: demo-vcluster
+      values: |
+        controlPlane:
+          ingress:
+            enabled: true
+            host: demo.vcluster.local
+            spec:
+              ingressClassName: nginx
+          proxy:
+            extraSANs:
+            - demo.vcluster.local
+        sync:
+          fromHost:
+            ingressClasses:
+              enabled: true
+          toHost:
+            ingresses:
+              enabled: true
+  sources: []
+  syncPolicy:
+    syncOptions:
+      - CreateNamespace=true
+  project: default
