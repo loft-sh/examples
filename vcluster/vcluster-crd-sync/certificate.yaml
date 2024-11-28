@@ -1,0 +1,13 @@
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: demo-app-tls
+spec:
+  secretName: demo-app-tls
+  dnsNames:
+  - ppp.xx.xxx.xx.xxx.nip.io  # Replace with your domain
+  issuerRef:
+    name: demo-issuer
+    kind: Issuer
+
+

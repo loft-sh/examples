@@ -1,0 +1,15 @@
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: demo-issuer
+spec:
+  acme:
+    email: your-email@gmail.com  # Replace with your email
+    server: https://acme-v02.api.letsencrypt.org/directory
+    privateKeySecretRef:
+      name: demo-issuer-account-key
+    solvers:
+    - http01:
+        ingress:
+          class: nginx
+

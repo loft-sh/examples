@@ -1,0 +1,24 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: demo-app
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    cert-manager.io/issuer: demo-issuer
+spec:
+  tls:
+  - hosts:
+    - ppp.xx.xxx.xx.xx.nip.io  # Replace with your domain
+    secretName: demo-app-tls
+  rules:
+  - host: ppp.xx.xxx.xx.xx.nip.io # Replace with your domain
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: demo-app
+            port:
+              number: 80
+
