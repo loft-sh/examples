@@ -81,6 +81,6 @@ spec:
 ```
 -----------------------------------------             
 ## Apply Label to Ingress controller deployment
-kubectl label deploy -n ingress-nginx ingress-nginx-controller dont=sleep    
+`kubectl label deploy -n ingress-nginx ingress-nginx-controller dont=sleep`
 ----------------------------------------
 
