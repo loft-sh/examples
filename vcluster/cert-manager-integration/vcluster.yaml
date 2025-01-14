@@ -1,0 +1,7 @@
+sync:
+  toHost:
+    ingresses:
+      enabled: true
+integrations:
+  certManager:
+    enabled: true
