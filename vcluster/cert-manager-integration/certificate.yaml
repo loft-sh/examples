@@ -1,0 +1,12 @@
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: example-cert
+  namespace: default
+spec:
+  dnsNames:
+  - cert.146.190.198.189.nip.io
+  issuerRef:
+    name: letsencrypt
+    kind: Issuer
+  secretName: example-cert-tls
