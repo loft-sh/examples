@@ -54,4 +54,4 @@ Remove the preview tag from the pull request. This will kick off the delete-prev
 
 # Demo Finished
 
-That concludes the demo. If you run into any issues reach out to me on Slack - Mike Petersen.
+That concludes the demo. If you run into any issues reach out to me on [Slack](https://slack.loft.sh/) - Mike Petersen.
