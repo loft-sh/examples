@@ -1,0 +1,33 @@
+name: Create Preview Environment
+on:
+  pull_request:
+    types: [labeled]
+    branches:
+      - "main"
+env:
+  PR_LINK: ${{ github.server_url }}/${{ github.repository }}/pull/${{ github.event.pull_request.number }}
+  
+jobs:
+  my-app:
+    if: ${{ github.event.label.name == 'preview' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Install vCluster CLI
+        uses: loft-sh/setup-vcluster@main
+      - name: Login to vCluster Platform instance
+        env:
+          LOFT_URL: ${{ secrets.VCLUSTER_PLATFORM_URL }}
+          ACCESS_KEY: ${{ secrets.VCLUSTER_ACCESS_KEY }}
+        run: vcluster platform login $LOFT_URL --access-key $ACCESS_KEY
+      - name: Create PR Virtual Cluster
+        env:
+          NAME: pr-${{ github.event.pull_request.number }}
+        run: vcluster platform create vcluster $NAME --project default --template preview-template --link "GitHub PR=$PR_LINK" --link "Preview=http://app.vcluster-demo.local"
+      - name: Check Out Repository Code
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+      - name: Deploy Application
+        run: kubectl apply -Rf ./deployments/my-app.yaml
+      - name: Wait for Deployment
+        run: kubectl rollout status deployments/my-app
