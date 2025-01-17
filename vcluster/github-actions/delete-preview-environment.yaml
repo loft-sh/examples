@@ -1,0 +1,31 @@
+name: Delete Preview Environment
+
+on:
+  pull_request:
+    branches:
+      - main
+    types: [closed, unlabeled]
+
+jobs:
+  destroy:
+    if: (github.event.action == 'closed' && contains(github.event.pull_request.labels.*.name, 'preview')) || github.event.label.name == 'preview'
+    runs-on: ubuntu-latest
+    steps:
+      - name: checkout
+        if: github.event.action == 'unlabeled'
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.head_ref }}
+          
+      - name: Install vCluster CLI
+        uses: loft-sh/setup-vcluster@main
+        with:
+          version: v0.21.2
+          url: ${{ secrets.VCLUSTER_PLATFORM_URL }}
+          # Specify your vCluster Platform access key here
+          access-key: ${{ secrets.VCLUSTER_ACCESS_KEY }}
+          #insecure: true
+
+      - name: Destroy Preview Environment
+        run: |
+          vcluster platform delete vcluster pr-${{ github.event.pull_request.number }} --project default

@@ -1,0 +1,11 @@
+sync:
+  fromHost:
+    ingressClasses:
+      enabled: true
+  toHost:
+    ingresses:
+      enabled: true
+external:
+  platform:
+    autoSleep:
+      afterInactivity: 3600
