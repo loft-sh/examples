@@ -6,8 +6,8 @@ metadata:
 spec:
  acme:
    # The ACME server URL
-   server: https://acme-v02.api.letsencrypt.org/directory
-   #  server: https://acme-staging-v02.api.letsencrypt.org/directory  for staging
+   server: https://acme-staging-v02.api.letsencrypt.org/directory  
+   # for staging
    # Email address used for ACME registration
    email: test-hrittik@loft.sh
    # Name of a secret used to store the ACME account private key
