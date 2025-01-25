@@ -22,4 +22,4 @@ spec:
   tls:
   - hosts:
     - game1.hrittikhere.live
-    secretName: sample-app-tls
+    secretName: letsencrypt-prod # Change to privateKeySecretRef from ClusterIssuer
