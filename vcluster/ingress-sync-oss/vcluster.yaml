@@ -1,0 +1,7 @@
+sync:
+  fromHost:
+    ingressClasses:
+      enabled: true
+  toHost:
+    ingresses:
+      enabled: true
