@@ -1,0 +1,25 @@
+name: Local Assistant
+version: 1.0.0
+schema: v1
+models:
+  - name: gemma3:4b
+    provider: ollama
+    model: gemma3:4b
+    apiBase: http://ots1.vcluster.ai/
+    roles:
+      - autocomplete
+      - chat
+      - embed
+      - edit
+      - apply
+  - name: Autodetect
+    provider: ollama
+    model: AUTODETECT
+context:
+  - provider: code
+  - provider: docs
+  - provider: diff
+  - provider: terminal
+  - provider: problems
+  - provider: folder
+  - provider: codebas
