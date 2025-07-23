@@ -1,7 +1,7 @@
 #!/bin/bash
 
 NAMESPACE="etcd-stress"
-COUNT=100000
+COUNT=1000
 SLEEP_INTERVAL=1
 
 # Create namespace if it doesn't exist
