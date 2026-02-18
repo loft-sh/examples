@@ -1,77 +1,114 @@
-# vCluster Sync
+# Sync Resources from vCluster to Host
 
-These are the resources that are associated with the YouTube video on vCluster Sync:
+This example shows how to create workloads inside a vCluster and have their Ingress resources sync back to the host cluster — allowing the host's nginx ingress controller and cert-manager to handle routing and TLS for applications running inside the vCluster.
 
-https://youtu.be/6dIplR8_z38
+> **Note:** `values.yaml` in this directory uses the **pre-v0.20 legacy API syntax** (e.g. `syncer.extraArgs`, `sync.ingresses.enabled`). The current vCluster v0.20+ format uses `vcluster.yaml` with a different structure. If you are running vCluster v0.20 or later, refer to the [vcluster.yaml configuration reference](https://www.vcluster.com/docs/vcluster/configure/vcluster-yaml/) for the updated syntax.
 
-Note - updates need to be made to many of the files to match your domain.
+## Prerequisites
 
-# Install on the base cluster
+- vCluster CLI installed ([install guide](https://www.vcluster.com/docs/get-started))
+- Kubernetes cluster (EKS or any cluster with an external load balancer)
+- Helm installed
+- A domain name you control
 
-Before creating the vCluster we need to get nginx and Cert-Manager running on the base cluster.
+## Overview
 
-## Nginx Ingress Controller
+| File | Purpose |
+|------|---------|
+| `values.yaml` | Legacy vCluster Helm values (pre-v0.20) — enables ingress sync and sets the vCluster API domain |
+| `demo-vcluster-ingress.yaml` | Ingress resource for the vCluster API endpoint (host cluster) |
+| `cluster-issuer.yaml` | cert-manager ClusterIssuer for Let's Encrypt (host cluster) |
+| `app.yaml` | Demo application — Deployment, Service, and Ingress (inside vCluster) |
+| `plugin.yaml` | Legacy syncer plugin config — for reference only |
 
-https://docs.nginx.com/nginx-ingress-controller/installation/installing-nic/installation-with-helm/
+## Steps
 
-Here is the one liner used in the video. We need to install nginx with ssl-passthrough enabled so that we can create an ingress resource to access the vCluster API:
+### 1. Install nginx ingress controller on the host cluster
 
-`helm install nginx-ingress --create-namespace -n nginx-ingress ingress-nginx/ingress-nginx --set "controller.extraArgs.enable-ssl-passthrough=true`
+```bash
+helm repo add ingress-nginx https://kubernetes.github.io/ingress-nginx
+helm repo update
+helm install nginx-ingress ingress-nginx/ingress-nginx \
+  --create-namespace -n nginx-ingress \
+  --set "controller.extraArgs.enable-ssl-passthrough=true"
+```
 
-Time to find the address for our LoadBalancer. This is the one liner used in the video to pull the automatically created EKS LoadBalancer (for our nginx ingress controller). 
+Find the LoadBalancer address:
 
-`kubectl get service -n nginx-ingress | grep LoadBalancer | awk {'print $4'}`
+```bash
+kubectl get service -n nginx-ingress | grep LoadBalancer | awk '{print $4}'
+```
 
-The result is something like `UUID-us-west-1.elb.amazonaws.com` which we can then use to create a CNAME record for whichever resources we want to create in the cluster. If you're using a service that gives you an IP address for the LoadBalancer service then you would want to create an A record instead.
+Create a CNAME (for cloud load balancers) or A record (for IP-based load balancers) pointing your domain to this address. For example:
 
-demo IN CNAME UUID-us-west-1.elb.amazonaws.com
+```
+demo IN CNAME <uuid>.us-west-1.elb.amazonaws.com
+```
 
-## Cert-Manager
+### 2. Install cert-manager on the host cluster
 
-Next up we need to install Cert-Manager on the base cluster. This will allow us to request certificates for the subdomains we create for our applications running within the virtual cluster.
+```bash
+kubectl apply -f https://github.com/cert-manager/cert-manager/releases/latest/download/cert-manager.yaml
+```
 
-https://cert-manager.io/docs/installation/kubectl/
+Wait for cert-manager to be ready:
 
-Note - the version can change in the command below depending on the current version that is available, so check with the documentation to see the latest version.
+```bash
+kubectl wait --for=condition=Available deployment --all -n cert-manager --timeout=120s
+```
 
-`kubectl apply -f https://github.com/cert-manager/releases/download/v1.13.3/cert-manager.yaml`
+### 3. Create the cert-manager ClusterIssuer
 
-Now that we have Cert-Manager configured we can create a cluster-issuer. The file used for the cluster-issuer needs an update before you apply it, add your email address so you can be updated when your certificates are expiring.
+Edit `cluster-issuer.yaml` and add your email address, then apply:
 
-`kubectl create -f cluster-issuer.yaml`
+```bash
+kubectl apply -f cluster-issuer.yaml
+```
 
-# vCluster
+### 4. Create the vCluster namespace and API ingress
 
-## Namespace
+```bash
+kubectl create namespace demo-vcluster
+kubectl create -f demo-vcluster-ingress.yaml
+```
 
-Now we can move on to creating our vCluster. Start out by creating the namespace, we'll need this to install the vCluster.
+Edit `demo-vcluster-ingress.yaml` first and replace the hostname with your domain.
 
-`kubectl create namespace demo-vcluster`
+### 5. Create the vCluster
 
-## Ingress
+> **Legacy command (pre-v0.20):**
 
-Then we can create the ingress resource needed to expose our vCluster API endpoint. The ingress resource we are using is for nginx, if you are using a different ingress controller then some of the configuration options will need to be updated, such as annotations and ingressClassName. We are installing this into the same namespace `demo-vcluster` which is configured within the yaml.
+```bash
+vcluster create demo-vcluster --namespace demo-vcluster --connect=false -f values.yaml
+```
 
-`kubectl create -f demo-vcluster-ingress.yaml`
+Edit `values.yaml` and replace `demo.vcluster-demo.com` with your actual domain before running this command.
 
-## Install the vCluster
+### 6. Connect to the vCluster
 
-Now we can install the vCluster using our values file. If you look at the values file we have configured a couple of things. We set the domain and then also set ingress to sync so that we can create ingerss resources within the vCluster and have them sync to the base cluster.
+```bash
+vcluster connect demo-vcluster --update-current=false --server=https://demo.vcluster-demo.com
+```
 
-`vcluster create demo-vcluster --namespace demo-vcluster --connect=false -f values.yaml`
+### 7. Deploy the application inside the vCluster
 
-## Access the KubeConfig
+Edit `app.yaml` to update the domain, then:
 
-Next we can pull the KubeConfig from the vCluster using the vCluster CLI
+```bash
+kubectl --kubeconfig ./kubeconfig.yaml apply -f app.yaml
+```
 
-`vcluster connect demo-vcluster --update-curent=false --server=https://demo.vcluster-demo.com`
+The Ingress resource in `app.yaml` will sync to the host cluster, where nginx and cert-manager will handle routing and TLS.
 
-## Create the application
+## Cleanup
 
-Then we can apply the app.yaml file to create the application in our vCluster. The file contains multiple resources including ingress, deployment, and a service.
+```bash
+vcluster delete demo-vcluster -n demo-vcluster
+kubectl delete namespace demo-vcluster
+```
 
-`kubectl --kubeconfig ./kubeconfig.yaml create -f app.yaml`
+## Learn More
 
-# Syncer
-
-There are some future updates coming to the Syncer, so we will stop the guide there. You can reference the plugin.yaml to see what the configuration currently looks like, but keep an eye on our docs for updates. 
+- [vCluster sync configuration docs](https://www.vcluster.com/docs/vcluster/configure/vcluster-yaml/sync/)
+- [vcluster.yaml configuration reference](https://www.vcluster.com/docs/vcluster/configure/vcluster-yaml/)
+- Community: [https://slack.vcluster.com](https://slack.vcluster.com)
