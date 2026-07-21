@@ -1,91 +1,117 @@
-# This folder includes the commands used in the snapshot and restore video as well as the files used
+# vCluster Snapshot and Restore
 
-The Docker commands assume that I'm logged into Docker. I'm using Docker Desktop to login so that I can upload images + build on a Mac. The commands are exact copies of the script I used for the video, which means you'll need to update some of the values. 
+This example demonstrates how to take an OCI image-based point-in-time snapshot of a vCluster and restore it — either in-place or by creating a new vCluster from the snapshot. Snapshots capture the full vCluster state (namespaces, CRDs, workloads) and store it as a container image in any OCI-compatible registry.
 
-# Build Image
+## Prerequisites
 
-cat Dockerfile
+- vCluster CLI installed ([install guide](https://www.vcluster.com/docs/get-started))
+- Kubernetes cluster (host)
+- An OCI-compatible container registry account (Docker Hub, GHCR, ECR, etc.)
+- Docker or another container build tool (for building the custom application image)
 
-cd html
+## Overview
 
-cat index.html
+| File | Purpose |
+|------|---------|
+| `deployment.yaml` | Sample nginx Deployment that uses a custom image — replace the image reference before use |
 
-open vs-rr.gif -a Firefox
+> **Note:** `deployment.yaml` references `mpetason/vs-rr:1987`. You need to build and push your own image, or replace this with any image you want to test snapshot/restore with (e.g. `nginx:latest`).
 
-cd ..
+## Steps
 
-docker build -t mpetason/vs-rr:1987 --platform linux/amd64 .
+### 1. Create a vCluster
 
-docker push mpetason/vs-rr:1987
-
-# Create vCluster
-
+```bash
 vcluster create test
+```
 
-kubectx
+### 2. Deploy a workload inside the vCluster
 
-kubectl get crd
+You can use the provided `deployment.yaml` (update the image first) or deploy anything you like:
 
-kubectl get namespace
-
+```bash
+# Option A: use a simple nginx image
 kubectl create namespace testc
+kubectl create deployment nginx-deployment -n testc --image=nginx
+kubectl get pods -n testc
 
-kubectl apply -f deployment.yaml -n test
+# Option B: build and push your own image, update deployment.yaml, then apply
+# docker build -t YOUR_DOCKERHUB_USERNAME/my-app:v1 --platform linux/amd64 .
+# docker push YOUR_DOCKERHUB_USERNAME/my-app:v1
+# kubectl apply -f deployment.yaml -n testc
+```
 
-kubectl get pods -n test
+### 3. Take an OCI snapshot
 
-kubectl port-forward pods/nginx-deployment-6cbdc8c4c9-7vkx9 -n test 8080:80
+Replace `YOUR_DOCKERHUB_USERNAME` with your registry username:
 
-Back to host Cluster
+```bash
+vcluster snapshot test oci://docker.io/YOUR_DOCKERHUB_USERNAME/vcluster-test:snapshot1
+```
 
-# OCI Snapshot
+The snapshot is pushed to your registry as a container image. The vCluster continues running normally while this happens.
 
-vcluster snapshot test oci://docker.io/mpetason/vcluster-test:snapshot1
+### 4. Verify the snapshot exists
 
-# Break Stuff
+```bash
+docker pull YOUR_DOCKERHUB_USERNAME/vcluster-test:snapshot1
+```
 
-kubectx
+### 5. Simulate a change or breakage
 
-kubectl get crd
-
+```bash
+# For example, install additional CRDs on the vCluster
 kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.17.0/cert-manager.yaml
+kubectl get crd | grep cert-manager
+```
 
-kubectl get crd
+### 6. Restore in place (option A)
 
-# Host Cluster Restore
+Restore the vCluster from the snapshot while keeping the same vCluster name:
 
-kubectx default
+```bash
+vcluster restore test oci://docker.io/YOUR_DOCKERHUB_USERNAME/vcluster-test:snapshot1
+```
 
-vcluster restore test oci://docker.io/mpetason/vcluster-test:snapshot1
+After restore, reconnect and verify:
 
-vcluster list
-
+```bash
 vcluster connect test
+kubectl get crd        # cert-manager CRDs should be gone
+kubectl get pods -n testc
+```
 
-kubectl get crd
+### 7. Create a new vCluster from the snapshot (option B)
 
-# Host Cluster Create
+You can also delete the current vCluster and create a fresh one from the snapshot:
 
+```bash
 vcluster delete test
+vcluster create test --restore oci://docker.io/YOUR_DOCKERHUB_USERNAME/vcluster-test:snapshot1
+```
 
-vcluster list
+The new vCluster will have all the state from when the snapshot was taken.
 
-vcluster create test --restore oci://docker.io/mpetason/vcluster-test:snapshot1
+### 8. Local snapshots (alternative)
 
-Look at timestamp of recreated vCluster - it shows a timestamp
+To save the snapshot locally instead of pushing to a registry:
 
-kubectl get namespace
-
-kubectl get pods -n test
-
-kubectl port-forward pods/nginx-deployment-6cbdc8c4c9-7vkx9 -n test 8080:80
-
-# Extras
-
-# Local
-
-So if you want to save the file locally you can do so. In future updates it might be easier to upate from a local file, however using the restore option right now assumes some type of endpoint instead of a local directory.
-
+```bash
 vcluster snapshot test "container:///data/test-snapshot.tar.gz"
 
+# Copy it out of the vCluster pod
 kubectl cp vcluster-test/test-0:data/test-snapshot.tar.gz test-snapshot.tar.gz
+```
+
+> **Note:** The `--restore` flag currently requires a remote OCI endpoint. Local restore support may change in future vCluster versions — check the [docs](https://www.vcluster.com/docs/vcluster/) for updates.
+
+## Cleanup
+
+```bash
+vcluster delete test
+```
+
+## Learn More
+
+- [vCluster snapshot/restore docs](https://www.vcluster.com/docs/vcluster/)
+- Community: [https://slack.vcluster.com](https://slack.vcluster.com)

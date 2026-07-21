@@ -1,57 +1,90 @@
-# GitHub Actions Example
+# GitHub Actions + vCluster Platform — PR Preview Environments
 
-In this example we will show how to use a GitHub action to create a virtual cluster with vCluster Platform. We will use tags on the pull request to both create and then delete the virtual cluster.
+This example shows how to use GitHub Actions to automatically create and delete ephemeral vCluster preview environments when a pull request is labeled. When a PR receives the `preview` label, an action spins up a vCluster on vCluster Platform and deploys the application to it. When the label is removed or the PR is closed, the cluster is deleted.
 
-In our example we are just deploying my-app to the virtual cluster once it has been created. We will build on this idea in future examples so that we can create an image off of the code change, push it to Docker, and then deploy the new application. The scope of this example will introduce you to the ideas behind GitHub Actions and how to use them with vCluster.
+## Prerequisites
 
-# Requirements
+- GitHub Account and public repository
+- Kubernetes cluster with vCluster Platform installed
+- nginx ingress controller on the host cluster
+- Wildcard DNS or DNS record for ingress access
 
-GitHub Account and public repository
-Kubernetes Cluster with vCluster Platform Installed
-Ingress Controller installed on Base Cluster
-Wildcard DNS or DNS Record for ingress resource
+## Overview
 
+| File | Purpose |
+|------|---------|
+| `create-preview-environment.yaml` | GitHub Actions workflow — triggered when `preview` label is added to a PR; creates the vCluster and deploys the app |
+| `delete-preview-environment.yaml` | GitHub Actions workflow — triggered when `preview` label is removed or PR is closed; deletes the vCluster |
+| `preview-template.yaml` | vCluster Platform template — configures ingress sync and auto-sleep after 1 hour of inactivity |
+| `my-app/my-app.yaml` | Sample application deployment referenced by the create workflow |
 
-# Create a template
+### Workflow summary
 
-Create a template in vCluster Platform based on the preview-template.yaml file. This template will be referenced in the workflow. The configuration syncs Ingress Class from the host cluster and then sync the Ingress resource in the virtual cluster back to the Host cluster.
+1. Developer opens a PR targeting `main`.
+2. Developer adds the `preview` label.
+3. `create-preview-environment.yaml` runs:
+   - Installs the vCluster CLI.
+   - Logs in to vCluster Platform using `VCLUSTER_PLATFORM_URL` and `VCLUSTER_ACCESS_KEY` secrets.
+   - Creates a vCluster named `pr-<number>` using the `preview-template`.
+   - Checks out the PR branch and deploys `./deployments/my-app.yaml` to the vCluster.
+4. Developer removes the `preview` label (or the PR is merged/closed).
+5. `delete-preview-environment.yaml` runs and deletes the `pr-<number>` vCluster.
 
+## Steps
 
-# Create GitHub Secrets
+### 1. Create a template in vCluster Platform
 
-We will need secrets for a few of the settings in the workflow. Credentials are needed to connect to our vCluster Platform endpoint - so we'll need to configure:
+Apply `preview-template.yaml` to your vCluster Platform instance to register the template:
 
-VCLUSTER_PLATFORM_URL
-VCLUSTER_ACCESS_KEY
+```bash
+kubectl apply -f preview-template.yaml
+```
 
-The URL will be your publicly accessible vCluster Platform URL. The Access Key will need to be created. Follow along in the video or check out:
+The template enables ingress sync and sets auto-sleep to 1 hour.
 
-https://www.vcluster.com/docs/platform/administer/users-permissions/access-keys
+### 2. Create GitHub Secrets
 
-# Create GitHub Actions
+In your repository, go to **Settings → Secrets and variables → Actions** and add:
 
-Create two GitHub actions using the create-preview-environment.yaml and delete-preview-environment.yaml. Update the create action with ingress hostname you're using for the application.
+| Secret | Value |
+|--------|-------|
+| `VCLUSTER_PLATFORM_URL` | Your publicly accessible vCluster Platform URL (e.g. `https://vcluster.example.com`) |
+| `VCLUSTER_ACCESS_KEY` | An access key from vCluster Platform ([how to create one](https://www.vcluster.com/docs/platform/administer/users-permissions/access-keys)) |
 
-# Create the deployment
+### 3. Add the GitHub Actions workflows
 
-Create a folder and applictaion in your GitHub repository - deployments/my-app.yaml. Update the my-app.yaml's ingress hostname. In the next video / example we'll go over how to automate the ingress hostname so that it will be based on the PR-hostname-URL.
+Copy `create-preview-environment.yaml` and `delete-preview-environment.yaml` to `.github/workflows/` in your repository. Update the preview application hostname in `create-preview-environment.yaml` (`--link "Preview=http://app.vcluster-demo.local"`) to match your ingress setup.
 
-# Create a pull request
+### 4. Add your application deployment
 
-Create a pull request and update the image being used. In our example we're just using a "hello-universe" image. In a real environment we wouldn't use "latest" and would probably just update the image with the most recent tag. In the demo I just want to show a different message posted when we hit the preview environment. The image I'm using is `mpetason/hello-universe:latest` but you can use whatever image you want. 
+Create `deployments/my-app.yaml` in your repository. Update the ingress hostname in the file to match your environment. A sample file is provided in `my-app/my-app.yaml`.
 
-Tag the pull request with `preview` - you'll probably need to create it so just type in preview in the label section and create a new one.
+### 5. Create a pull request and apply the label
 
-Once the `preview` tag has been added the create action will run. 
+Open a PR targeting `main`, then add the `preview` label. The create workflow will run automatically.
 
-# Verify the deployment
+### 6. Verify the deployment
 
-Head back to the vCluster Platform UI (or cli) to see the new cluster that was created. The cluster should deploy the new application as well. As long as you have the DNS records configured for the hostname, you should be able to resolve and open the link. 
+Check the vCluster Platform UI or CLI to see the created cluster:
 
-# Delete the virtual cluster
+```bash
+vcluster platform list vclusters --project default
+```
 
-Remove the preview tag from the pull request. This will kick off the delete-preview-environment. 
+### 7. Delete the preview environment
 
-# Demo Finished
+Remove the `preview` label from the PR. The delete workflow will run and tear down the vCluster.
 
-That concludes the demo. If you run into any issues reach out to me on [Slack](https://slack.loft.sh/) - Mike Petersen.
+## Cleanup
+
+Clusters are deleted automatically by the workflow. To delete manually:
+
+```bash
+vcluster platform delete vcluster pr-<number> --project default
+```
+
+## Learn More
+
+- [vCluster Platform docs](https://www.vcluster.com/docs/platform/)
+- [vCluster Platform access keys](https://www.vcluster.com/docs/platform/administer/users-permissions/access-keys)
+- Community: [https://slack.vcluster.com](https://slack.vcluster.com)

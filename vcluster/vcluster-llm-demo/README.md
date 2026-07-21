@@ -1,239 +1,174 @@
-# Local LLM on vCluster with the Nvidia GPU Operator
+# Local LLM on vCluster with the NVIDIA GPU Operator
 
-In this demo we are going to configure time-slicing. We will then deploy two virtual clusters. Within the virtual clusters we will deploy Open-WebUI and then download a model from Ollam. The model used will need to be smaller than half of the memory we have on the graphics card since we are going to load multiple models.
+This example demonstrates running local LLMs (via Ollama + Open-WebUI) inside two isolated vClusters that share a single GPU through NVIDIA GPU time-slicing. Each vCluster gets its own GPU replica, allowing multiple tenants to run AI workloads on the same physical GPU without interference.
 
-## Installing the GPU Operator
+## Prerequisites
 
-We are going to start out by making sure we are using the right context. In our demo we are going to use the ai context.
+- Kubernetes cluster with at least one NVIDIA GPU node
+- [Helm](https://helm.sh/docs/intro/install/) installed
+- vCluster CLI installed ([install guide](https://www.vcluster.com/docs/get-started))
+- MetalLB (or another load balancer) and nginx ingress controller on the host cluster
+- DNS or `/etc/hosts` entries for the ingress hostnames
 
-```sh
-kubectx
+## Overview
+
+| File | Purpose |
+|------|---------|
+| `vcluster.yaml` | vCluster config — syncs IngressClasses from host, syncs Ingresses to host, and enables node sync (required for GPU scheduling) |
+| `time-slicing-config-all.yaml` | ConfigMap for the NVIDIA GPU Operator — configures 4 time-sliced GPU replicas |
+| `verify-timeslicing.yaml` | Job to verify time-slicing is working correctly |
+| `ts1-ingress.yaml` | Ingress resources for the first vCluster (ts1) |
+| `ts2-ingress.yaml` | Ingress resources for the second vCluster (ts2) |
+| `continue.yaml` | Configuration for the Continue AI coding assistant in VS Code |
+
+> **Note:** The README and YAML files reference a specific GPU node name. Replace `mai` with the name of your GPU node (`kubectl get nodes`) wherever it appears.
+
+## Steps
+
+### 1. Install the NVIDIA GPU Operator on the host cluster
+
+```bash
+helm repo add nvidia https://helm.ngc.nvidia.com/nvidia
+helm repo update
+helm install --wait --generate-name \
+  -n gpu-operator --create-namespace \
+  nvidia/gpu-operator --version=v25.3.0
 ```
 
-Now that we have selected the correct context, let's go ahead and install the GPU operator.
+### 2. Apply the time-slicing ConfigMap
 
-```sh
-helm install --wait --generate-name -n gpu-operator --create-namespace nvidia/gpu-operator --version=v25.3.0
-```
+This splits one physical GPU into 4 virtual replicas:
 
-Next we need to add the timeslicing configmap. This will let the GPU operator know that we are going to be using timeslicing. If we want to use run multiple workloads on the same GPU then we need timeslicing or MIG (Multi-Instance GPU). Timeslicing can also be used in addition to MIG.
-
-```yaml
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: time-slicing-config-all
-  namespace: gpu-operator
-data:
-  any: |-
-    version: v1
-    flags:
-      migStrategy: none
-    sharing:
-      timeSlicing:
-        resources:
-        - name: nvidia.com/gpu
-          replicas: 4
-```
-
-```sh
+```bash
 kubectl create -f time-slicing-config-all.yaml
 ```
 
-We created the configmap but we need to patch the cluster-policy.
+Patch the cluster-policy to enable time-slicing:
 
-```sh
- kubectl patch clusterpolicy/cluster-policy -n gpu-operator --type merge -p '{"spec": {"devicePlugin": {"config": {"name": "time-slicing-config-all", "default": "any"}}}}'
+```bash
+kubectl patch clusterpolicy/cluster-policy -n gpu-operator --type merge \
+  -p '{"spec": {"devicePlugin": {"config": {"name": "time-slicing-config-all", "default": "any"}}}}'
 ```
 
-Now we can describe the node and see the gpu count and the gpu relicas. We have 1 GPU and we have split it into 4 available replicas. In a production environment you would expect more GPUs and more replicas on those GPUs. The amount of replicas will depend on your needs.
+Verify the GPU replicas are visible on your GPU node:
 
-```sh
-kubectl describe node mai | grep -i gpu.count && kubectl describe node mai | grep -i gpu.replicas
+```bash
+kubectl describe node <gpu-node-name> | grep -i gpu.count
+kubectl describe node <gpu-node-name> | grep -i gpu.replicas
 ```
 
-## Setup for the vCluster to use an ingress controller + DNS
+### 3. Set up ingress and DNS on the host cluster
 
-We definitely need an ingress controller on the host cluster and a loadbalancer. In this setup we are using MetalLB with an On-Prem Bare Metal K3s installation. For more information about how to set that up, check out this video (https://youtu.be/AsYEYoLW-Uk)
+Verify that MetalLB and nginx ingress controller are running and have a LoadBalancer IP:
 
-```sh
+```bash
 kubectl get services -n nginx-ingress | grep -i loadbalancer
 ```
 
-For this demo we're actually just updating /etc/hosts to point to the LoadBalancer instead of configuring real DNS, however in a production environment you would want to configure DNS either locally through a DNS service or if using a public cloud you could use your registrar / DNS host with a DNS record. Here we are just showing that /etc/hosts has four records that we are going to use when we configure ingress.
+Add the following entries to `/etc/hosts` (or configure real DNS records), replacing `<nginx-ip>` with the LoadBalancer IP:
 
-```sh
-grep -i vcluster.ai /etc/hosts
+```
+<nginx-ip>   ts1.vcluster.ai
+<nginx-ip>   ots1.vcluster.ai
+<nginx-ip>   ts2.vcluster.ai
+<nginx-ip>   ots2.vcluster.ai
 ```
 
-## Deploying our first vCluster
+### 4. Deploy the first vCluster (ts1)
 
-Using the vCluster CLI we can list out the current virtual clusters. We currently do not have any deployed.
-
-```sh
-vcluster list
-```
-
-Let's take a look at the vcluster.yaml file. We need to configure a couple of things. First we need the ingressclass synced from the host cluster to the vCluster, we also need the ingress resources within the vCluster to sync to the host cluster, finally we need to sync nodes.
-
-```yaml
-sync:
-  fromHost:
-    ingressClasses:
-      enabled: true
-    nodes:
-      enabled: true
-  toHost:
-    ingresses:
-      enabled: true
-```
-
-Now it's time to create the vCluster. Using the vCluster CLI and the vcluster.yaml file we can create it using this command:
-
-```sh
+```bash
 vcluster create ts1 -n ts1 -f vcluster.yaml
 ```
 
-After the vCluster has been created, if you have a container engine installed (like Docker) it will bring up a container and port forward for you. If you aren't using Docker Desktop then it will port forward in the current terminal. We're going to use the port forwarding container to connect to the vCluster, however you can also add ingress in front if you want to access it over a hostname.
+After creation the vCluster CLI will connect automatically (or port-forward if no Docker Desktop is present).
 
-Let's check the context to make sure we're using the right one before installing the GPU-Operator in the virtual cluster.
+### 5. Install the GPU Operator in ts1
 
-```sh
-kubectx
+Inside the vCluster, install the GPU Operator with driver and toolkit disabled (they run on the host):
+
+```bash
+helm install --wait --generate-name \
+  -n gpu-operator --create-namespace \
+  nvidia/gpu-operator --version=v25.3.0 \
+  --set driver.enabled=false \
+  --set toolkit.enabled=false \
+  --set nfd.enabled=false
 ```
 
-Time to install the GPU Operator. We're going to disable a couple of things since we have the full operator running on the host cluster. Install with the command below which disables the driver and toolkit.
+Apply time-slicing config inside ts1:
 
-```sh
-helm install --wait --generate-name -n gpu-operator --create-namespace nvidia/gpu-operator --version=v25.3.0 --set driver.enabled=false --set toolkit.enabled=false --set nfd.enabled=false
-```
-
-```sh
+```bash
 kubectl create -f time-slicing-config-all.yaml
+kubectl patch clusterpolicy/cluster-policy -n gpu-operator --type merge \
+  -p '{"spec": {"devicePlugin": {"config": {"name": "time-slicing-config-all", "default": "any"}}}}'
 ```
 
-```sh
- kubectl patch clusterpolicy/cluster-policy -n gpu-operator --type merge -p '{"spec": {"devicePlugin": {"config": {"name": "time-slicing-config-all", "default": "any"}}}}'
+Verify the GPU replicas are visible inside ts1:
+
+```bash
+kubectl describe node <gpu-node-name> | grep -i gpu.count
+kubectl describe node <gpu-node-name> | grep -i gpu.replicas
 ```
 
-```sh
-kubectl describe node mai | grep -i gpu.count && kubectl describe node mai | grep -i gpu.replicas
+### 6. Install Open-WebUI with Ollama in ts1
+
+```bash
+helm repo add open-webui https://helm.openwebui.com
+helm repo update
+helm install open-webui open-webui/open-webui \
+  --set image.tag=ollama \
+  --set ollama.ollama.gpu.enabled=true \
+  --set ollama.ollama.gpu.number=1 \
+  --set ollama.ollama.gpu.type=nvidia \
+  --set ollama.runtimeClassName=nvidia
 ```
 
-## Installing the first instances of Open-WebUI
+Create the ingress for ts1:
 
-Now we can install the open-webui in vCluster. In this demo we are going to use ollama, so we need to set a couple of values to make sure it knows what to use. We're using the gpu type of Nvidia and allocating 1 GPU, and we're using the nvidia runtimeClass. If you install without these options it will try to use the CPU instead.
-
-```sh
-helm install open-webui open-webui/open-webui --set image.tag=ollama --set ollama.ollama.gpu.enabled=true --set ollama.ollama.gpu.number=1 --set ollama.ollama.gpu.type=nvidia --set ollama.runtimeClassName=nvidia
-```
-
-Let's create the ingress resource so that we can interact with the UI from our desktop.
-
-```yaml
-apiVersion: networking.k8s.io/v1
-kind: Ingress
-metadata:
-  name: open-webui-ingress
-spec:
-  ingressClassName: nginx
-  rules:
-  - host: ts1.vcluster.ai
-    http:
-      paths:
-      - backend:
-          service:
-            name: open-webui
-            port:
-              number: 80
-        path: /
-        pathType: ImplementationSpecific
----
-apiVersion: networking.k8s.io/v1
-kind: Ingress
-metadata:
-  name: ollama-open-webui-ingress
-spec:
-  ingressClassName: nginx
-  rules:
-  - host: ots1.vcluster.ai
-    http:
-      paths:
-      - backend:
-          service:
-            name: open-webui-ollama
-            port:
-              number: 11434
-        path: /
-        pathType: ImplementationSpecific
-```
-
-```sh
+```bash
 kubectl create -f ts1-ingress.yaml
-```
-
-Check on the ingress resource to make sure it finishes deploying.
-
-```sh
 kubectl get ingress
 ```
 
-Now we can open the UI in Firefox and fill in the required information to log in.
+Open the UI in your browser at `http://ts1.vcluster.ai` and set up your account.
 
-```sh
-open -a Firefox "http://ts1.vcluster.ai"
-```
+### 7. Deploy the second vCluster (ts2)
 
-Time to disconnect from the current vCluster so we can deploy another one.
+Disconnect from ts1 and repeat steps 4–6 for ts2:
 
-```sh
+```bash
 vcluster disconnect
-```
-
-## Deploying our second vCluster
-
-These commmands are going to mirror what we just did above however we're creating a ts2 vCluster and a ts2 ingress resource.
-
-```sh
 vcluster create ts2 -n ts2 -f vcluster.yaml
 ```
 
-```sh
-kubectx
-```
+Follow the same GPU Operator and Open-WebUI install steps, then:
 
-```sh
-helm install --wait --generate-name -n gpu-operator --create-namespace nvidia/gpu-operator --version=v25.3.0 --set driver.enabled=false --set toolkit.enabled=false --set nfd.enabled=false
-```
-
-```sh
-kubectl create -f time-slicing-config-all.yaml
-```
-
-```sh
-kubectl patch clusterpolicy/cluster-policy -n gpu-operator --type merge -p '{"spec": {"devicePlugin": {"config": {"name": "time-slicing-config-all", "default": "any"}}}}'
-```
-
-```sh
-kubectl describe node mai | grep -i gpu.count && kubectl describe node mai | grep -i gpu.replicas
-```
-
-```sh
-helm install open-webui open-webui/open-webui --set image.tag=ollama --set ollama.ollama.gpu.enabled=true --set ollama.ollama.gpu.number=1 --set ollama.ollama.gpu.type=nvidia --set ollama.runtimeClassName=nvidia
-```
-
-```sh
+```bash
 kubectl create -f ts2-ingress.yaml
 ```
 
-```sh
-kubectl get ingress
+Open ts2's UI at `http://ts2.vcluster.ai`.
+
+### 8. (Optional) Connect Continue in VS Code
+
+[Continue](https://www.continue.dev/) is an open-source AI coding assistant for VS Code. To connect it to the Ollama instance running in ts1 or ts2:
+
+1. Install the [Continue extension](https://marketplace.visualstudio.com/items?itemName=Continue.continue) in VS Code.
+2. Apply the `continue.yaml` config or manually add the Ollama endpoint (`http://ots1.vcluster.ai`) as an OpenAI-compatible model provider in Continue's settings.
+3. Select the model you downloaded in Open-WebUI and start chatting with your code.
+
+## Cleanup
+
+```bash
+vcluster delete ts1 -n ts1
+vcluster delete ts2 -n ts2
+kubectl delete namespace ts1 ts2
 ```
 
-```sh
-open -a Firefox "http://ts2.vcluster.ai"
-```
+## Learn More
 
-## VS Code and Continue
-
-Now that we have everything running we can connect Continue to it in VS Code.
+- [vCluster docs](https://www.vcluster.com/docs/vcluster/)
+- [NVIDIA GPU Operator docs](https://docs.nvidia.com/datacenter/cloud-native/gpu-operator/latest/index.html)
+- [Ollama](https://ollama.com/)
+- [Open-WebUI](https://docs.openwebui.com/)
+- Community: [https://slack.vcluster.com](https://slack.vcluster.com)
